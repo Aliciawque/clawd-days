@@ -19,6 +19,7 @@ A pixel-art virtual pet game starring Clawd, playable in any browser. One HTML f
   - *Funfair*: ride the Ferris wheel, go down the slide, and turn the capsule machine for 12 collectible toys.
   - *Lake*: fish from the dock (11 catches that depend on season, hour and weather) and draw a daily fortune at the torii that boosts coins.
 - **Four mini-games** — Memory Tokens, Star Catch, Clawd Dash and the Daily Word.
+- **Music and sound** — a procedural chiptune theme for every place (softer at night, a lullaby while Clawd sleeps), rain ambience, and effects for every interaction. All synthesized with Web Audio; no audio files. Volume and on/off live under the ♪ button.
 - **Reasons to come back** — daily gift streak, three daily quests, welcome-back gifts, shooting stars, golden bugs, 49 trophies, hats, and a journal to fill.
 
 Progress saves automatically to the browser's localStorage.

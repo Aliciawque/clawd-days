@@ -113,6 +113,7 @@ h3{margin:12px 0 6px;font-size:16px}
 .loc{font:inherit;font-weight:700;font-size:13px;color:var(--ink);background:var(--paper);border:0;border-right:3px solid var(--ink);padding:6px 0;cursor:pointer}
 .loc:last-child{border-right:0}.loc.on{background:var(--yellow)}.loc:active{background:#FFE98A}
 .hearts{color:var(--coral);letter-spacing:1px}
+.row input[type=range]{width:96px;accent-color:var(--coral);flex:none}
 .sw{width:26px;height:26px;border:3px solid var(--ink);flex:none}
 .wg{display:grid;grid-template-columns:repeat(5,40px);gap:4px;justify-content:center;margin:8px 0}
 .wc{width:40px;height:40px;border:3px solid var(--ink);background:var(--paper);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:22px}
@@ -365,7 +366,7 @@ function freshState(){return{v:1,stage:0,form:null,eggTaps:0,lvl:1,xp:0,coins:30
  stats:{food:70,energy:80,mood:70,clean:80},skills:{smarts:0,vigor:0,charm:0},
  clock:8,born:8,sleeping:false,sleptGh:0,sick:false,neglect:0,plots:[null,null,null],crops:{},fish:{},toys:{},pity:0,tips:{},loc:'garden',friends:{},buddy:null,fav:null,favKnown:false,places:['garden'],hat:null,hats:[],foods:{},seasons:[0],forms:[],gen:1,
  n:{meals:0,pets:0,bugs:0,gold:0,baths:0,studies:0,plays:0,stars:0,earned:0,bestSimon:0,bestCatch:0,greets:0,harvests:0,goals:0,bestDash:0,words:0,rides:0,great:0},
- ach:{},daily:{date:'',quests:[],bonus:false},streak:{last:'',n:0},lastSeen:Date.now(),mute:false};}
+ ach:{},daily:{date:'',quests:[],bonus:false},streak:{last:'',n:0},lastSeen:Date.now(),mute:false,music:true,mvol:0.6,svol:0.8};}
 let S=freshState();
 function load(){try{const raw=localStorage.getItem(SAVE_KEY);if(raw){const d=JSON.parse(raw);const f=freshState();S=Object.assign(f,d);S.stats=Object.assign(freshState().stats,d.stats);S.skills=Object.assign(freshState().skills,d.skills);S.n=Object.assign(freshState().n,d.n);return true;}}catch(e){}return false;}
 function save(){S.lastSeen=Date.now();try{localStorage.setItem(SAVE_KEY,JSON.stringify(S));}catch(e){}}
@@ -375,12 +376,97 @@ const today=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth
 const xpNeed=l=>20+l*15;
 const stageName=()=>S.stage===0?'Mystery Egg':S.stage===1?'Baby Clawd':S.stage===2?'Kid Clawd':FORMS[S.form].name;
 
-/* ---------- audio ---------- */
-let AC=null;
-function beep(f,d=0.08,v=0.035,when=0,type='square'){if(S.mute)return;try{AC=AC||new (window.AudioContext||window.webkitAudioContext)();const o=AC.createOscillator(),ga=AC.createGain();o.type=type;o.frequency.value=f;o.connect(ga);ga.connect(AC.destination);const t=AC.currentTime+when;ga.gain.setValueAtTime(v,t);ga.gain.exponentialRampToValueAtTime(0.0001,t+d);o.start(t);o.stop(t+d+0.02);}catch(e){}}
+/* ---------- audio: sound effects + procedural chiptune music ---------- */
+let AC=null,sfxBus=null,musBus=null,musFade=null,rainGain=null,simonOn=false;
+const NOTE={C:0,D:2,E:4,F:5,G:7,A:9,B:11},noiseCache=new WeakMap();
+function midi(n){const m=/^([A-G])([#b]?)(-?\d)$/.exec(n);return 12*(+m[3]+1)+NOTE[m[1]]+(m[2]==='#'?1:m[2]==='b'?-1:0);}
+const mfreq=m=>440*Math.pow(2,(m-69)/12);
+function tone(ctx,dest,f,t,d,v,type,f2,pluck){const o=ctx.createOscillator(),ga=ctx.createGain(),end=pluck?Math.max(d,0.55):d+0.04;o.type=type||'square';o.frequency.setValueAtTime(f,t);if(f2)o.frequency.exponentialRampToValueAtTime(f2,t+d);
+ ga.gain.setValueAtTime(0.0001,t);ga.gain.exponentialRampToValueAtTime(v,t+0.012);if(!pluck)ga.gain.exponentialRampToValueAtTime(v*0.55,t+d*0.8);ga.gain.exponentialRampToValueAtTime(0.0001,t+end);
+ o.connect(ga);ga.connect(dest);o.start(t);o.stop(t+end+0.03);}
+function getNoise(ctx){let b=noiseCache.get(ctx);if(!b){b=ctx.createBuffer(1,ctx.sampleRate,ctx.sampleRate);const d=b.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;noiseCache.set(ctx,b);}return b;}
+function noiseAt(ctx,dest,t,d,v,f1,f2,ft){const s=ctx.createBufferSource(),fl=ctx.createBiquadFilter(),ga=ctx.createGain();s.buffer=getNoise(ctx);s.loop=true;fl.type=ft||'bandpass';fl.frequency.setValueAtTime(f1||2000,t);if(f2)fl.frequency.exponentialRampToValueAtTime(f2,t+d);
+ ga.gain.setValueAtTime(v,t);ga.gain.exponentialRampToValueAtTime(0.0001,t+d);s.connect(fl);fl.connect(ga);ga.connect(dest);s.start(t,Math.random()*0.5);s.stop(t+d+0.02);}
+function audioInit(){if(AC){if(AC.state==='suspended'&&!document.hidden)AC.resume();return;}
+ try{AC=new (window.AudioContext||window.webkitAudioContext)();}catch(e){AC=null;return;}
+ sfxBus=AC.createGain();sfxBus.connect(AC.destination);musBus=AC.createGain();musBus.connect(AC.destination);musFade=AC.createGain();musFade.connect(musBus);
+ const dl=AC.createDelay(1),fb=AC.createGain(),wet=AC.createGain();dl.delayTime.value=0.27;fb.gain.value=0.28;wet.gain.value=0.2;musFade.connect(dl);dl.connect(fb);fb.connect(dl);dl.connect(wet);wet.connect(musBus);
+ rainGain=AC.createGain();rainGain.gain.value=0;const rs=AC.createBufferSource(),rf=AC.createBiquadFilter();rs.buffer=getNoise(AC);rs.loop=true;rf.type='bandpass';rf.frequency.value=2400;rf.Q.value=0.4;rs.connect(rf);rf.connect(rainGain);rainGain.connect(sfxBus);rs.start();
+ applyVolume();setInterval(musicTick,60);}
+function applyVolume(){if(!AC)return;sfxBus.gain.value=S.mute?0:S.svol;musBus.gain.value=S.music?S.mvol:0;}
+['pointerdown','keydown'].forEach(ev=>addEventListener(ev,audioInit,true));
+document.addEventListener('visibilitychange',()=>{if(!AC)return;if(document.hidden)AC.suspend();else AC.resume();});
+function beep(f,d=0.08,v=0.035,when=0,type='square',f2){if(S.mute||!AC)return;try{tone(AC,sfxBus,f,AC.currentTime+when,d,v,type,f2);}catch(e){}}
+function noise(d=0.1,v=0.04,when=0,f1=2000,f2=0,ft){if(S.mute||!AC)return;try{noiseAt(AC,sfxBus,AC.currentTime+when,d,v,f1,f2,ft);}catch(e){}}
 const jingle=(notes,step=0.09)=>notes.forEach((f,i)=>beep(f,0.13,0.035,i*step));
 const sfx={tap:()=>beep(660,0.05),ok:()=>jingle([523,659,784]),coin:()=>jingle([988,1319],0.06),bad:()=>jingle([220,165],0.12),
- big:()=>jingle([523,659,784,1047,784,1047],0.1),eat:()=>jingle([330,392,330,392],0.11),squash:()=>beep(140,0.09,0.05),pet:()=>beep(880,0.06,0.025,0,'triangle')};
+ big:()=>jingle([523,659,784,1047,784,1047],0.1),squash:()=>{beep(140,0.09,0.05,0,'square',70);noise(0.05,0.04,0,1500);},pet:()=>beep(880,0.07,0.025,0,'triangle',1100),
+ eat:()=>{for(let i=0;i<5;i++){noise(0.06,0.05,i*0.24,900,500,'lowpass');beep(180,0.05,0.03,i*0.24,'triangle',120);}jingle([659,784],0.1);},
+ whoosh:()=>noise(0.32,0.05,0,500,4200),crack:()=>{noise(0.05,0.06,0,3500,0,'highpass');beep(900,0.04,0.03,0,'square',500);},
+ splash:()=>{noise(0.35,0.07,0,1600,350,'lowpass');beep(320,0.16,0.03,0,'sine',110);},plop:()=>beep(520,0.11,0.04,0,'sine',170),
+ water:()=>{for(let i=0;i<5;i++)beep(rnd(800,1100),0.06,0.02,i*0.05,'sine',rnd(1300,1700));},
+ rustle:()=>{for(let i=0;i<5;i++)noise(0.07,0.045,i*0.07,rnd(2500,4000),6000);},
+ kick:()=>{beep(190,0.13,0.08,0,'sine',48);noise(0.04,0.03,0,2200);},jump:()=>beep(340,0.13,0.03,0,'square',720),
+ crank:()=>{for(let i=0;i<5;i++)noise(0.03,0.05,i*0.08,2600);beep(300,0.08,0.03,0.42,'sine',900);noise(0.06,0.05,0.5,5000,0,'highpass');},
+ page:()=>{noise(0.13,0.035,0,5200,1800,'highpass');noise(0.1,0.03,0.2,4200,1800,'highpass');},
+ bell:()=>{beep(659,1.4,0.05,0,'sine');beep(1318,0.9,0.02,0,'sine');beep(1977,0.5,0.01,0,'sine');beep(659,1.2,0.04,0.5,'sine');},
+ slide:()=>{for(let i=0;i<4;i++)beep(300+i*80,0.05,0.025,i*0.13,'square');beep(1300,1.1,0.03,0.6,'triangle',260);},
+ bath:()=>{noise(0.4,0.04,0,1400,500,'lowpass');for(let i=0;i<12;i++)beep(rnd(900,1700),0.06,0.014,0.2+i*0.18,'sine',rnd(1800,2400));},
+ cast:()=>{noise(0.22,0.03,0,2500,7000,'highpass');beep(520,0.11,0.04,0.36,'sine',170);noise(0.12,0.03,0.36,1400,500,'lowpass');},
+ bite:()=>{beep(1200,0.08,0.05);beep(1500,0.1,0.05,0.08);noise(0.25,0.06,0,1600,400,'lowpass');},
+ ride:()=>jingle([523,659,784,1047,1319,1047,784,1047],0.13),sleep:()=>{beep(784,0.3,0.03,0,'sine');beep(659,0.3,0.03,0.3,'sine');beep(523,0.5,0.03,0.6,'sine');},
+ pop:()=>beep(500,0.07,0.04,0,'triangle',1000)};
+/* music: note strings are steps ('-' holds, '.' rests); one chord per bar */
+const TRACKS={
+ garden:{bpm:112,bar:8,style:'bounce',wave:'square',chords:['C','C','F','G','Am','C','F','C'],lead:`
+  E5 G5 A5 G5 E5 - D5 -   C5 D5 E5 G5 E5 - - .   A5 G5 E5 D5 C5 - D5 -   E5 D5 C5 A4 G4 - - .
+  E5 G5 A5 C6 A5 - G5 -   E5 G5 A5 G5 E5 - D5 .   C5 D5 E5 G5 A5 G5 E5 D5   C5 - - . G4 . C5 .`},
+ home:{bpm:92,bar:8,style:'bounce',wave:'triangle',lv:0.07,nodrum:true,chords:['F','F','Bb','C','Gm','Dm','F','F'],lead:`
+  A4 - C5 - F5 - E5 D5   C5 - - A4 C5 - - .   Bb4 - D5 - F5 - E5 D5   C5 - - - . . G4 A4
+  Bb4 - A4 G4 A4 - C5 -   D5 - C5 A4 G4 - - .   A4 G4 F4 G4 A4 - C5 -   F4 - - - . . . .`},
+ school:{bpm:126,bar:8,style:'bounce',wave:'square',chords:['G','D','G','D','C','G','D','G'],lead:`
+  D5 . D5 E5 D5 B4 G4 .   A4 . A4 B4 A4 F#4 D4 .   G4 A4 B4 C5 D5 - B4 -   A4 - - . D5 . . .
+  E5 . E5 F#5 G5 E5 C5 .   D5 . D5 E5 D5 B4 G4 .   C5 B4 A4 G4 A4 - F#4 -   G4 - - . . . D4 .`},
+ funfair:{bpm:176,div:1,bar:3,style:'waltz',wave:'square',chords:['C','G','F','C','Dm','F','G','G','C','C','F','F','C','Dm','G','C'],lead:`
+  E5 G5 C6   B5 - G5   A5 F5 A5   G5 - -   F5 A5 D6   C6 - A5   B5 G5 B5   D6 - -
+  E6 - C6   G5 - C6   F5 A5 C6   A5 - -   G5 E5 G5   F5 D5 F5   E5 D5 B4   C5 - .`},
+ lake:{bpm:76,bar:8,style:'calm',wave:'triangle',lv:0.075,chords:['Am','Em','Am','Am','F','Em','Am','Am'],lead:`
+  E5 - - F5 E5 - C5 -   B4 - - - A4 - - .   A4 B4 C5 - E5 - - F5   E5 - - - . . . .
+  A5 - - F5 E5 - C5 -   B4 - C5 B4 A4 - - .   E4 - A4 - B4 - C5 B4   A4 - - - . . . .`},
+ game:{bpm:160,bar:8,style:'bounce',wave:'square',chords:['C','Dm','Em','G'],lead:`
+  C5 E5 G5 C6 G5 E5 C5 E5   D5 F5 A5 D6 A5 F5 D5 F5   E5 G5 B5 E6 B5 G5 E5 G5   F5 A5 G5 B5 C6 - . .`},
+ sleep:{bpm:60,bar:8,style:'calm',wave:'sine',lv:0.05,chords:['C','G','C','F','F','C','G','C'],lead:`
+  E5 - G5 - E5 - C5 -   D5 - - - G4 - - -   E5 - G5 - C6 - B5 -   A5 - - - G5 - - -
+  F5 - A5 - G5 - E5 -   D5 - F5 - E5 - C5 -   D5 - G4 - B4 - D5 -   C5 - - - - - . .`},
+};
+function chordTones(c){const m=/^([A-G][#b]?)(m?)$/.exec(c),r=midi(m[1]+'3');return[r,r+(m[2]?3:4),r+7];}
+function prep(tr){if(tr.ev)return tr;const tok=tr.lead.trim().split(/\s+/);tr.ev=[];for(let i=0;i<tok.length;i++){if(tok[i]==='-'||tok[i]==='.')continue;let d=1;while(tok[i+d]==='-')d++;tr.ev[i]={f:mfreq(midi(tok[i])),d};}tr.len=tok.length;tr.ch=tr.chords.map(chordTones);return tr;}
+function schedStep(ctx,dest,tr,s,t,sd,night,pass){
+ const e=tr.ev[s],b=s%tr.bar,ch=tr.ch[Math.floor(s/tr.bar)%tr.ch.length],calm=tr.style==='calm';
+ if(e)tone(ctx,dest,e.f,t,e.d*sd*0.95,(tr.lv||0.05)*(night?0.85:1),night&&tr.wave==='square'?'triangle':tr.wave,0,calm);
+ if(e&&pass%2===1&&e.f<1100)tone(ctx,dest,e.f*2,t,e.d*sd*0.9,(tr.lv||0.05)*0.28,'triangle',0,calm);
+ if(tr.style==='bounce'){if(b===0||b===4)tone(ctx,dest,mfreq(ch[b?2:0]-12),t,sd*1.6,0.07,'triangle');else if(b===2||b===6)tone(ctx,dest,mfreq(ch[0]),t,sd*0.8,0.035,'triangle');
+  if(b%2===1)tone(ctx,dest,mfreq(ch[(b>>1)%3]+12),t,sd*0.7,0.011,'square');
+  if(!night&&!tr.nodrum){if(b%2===1)noiseAt(ctx,dest,t,0.03,0.012,7000,0,'highpass');if(b===0||b===4)tone(ctx,dest,120,t,0.09,0.06,'sine',45);}}
+ else if(tr.style==='waltz'){if(b===0)tone(ctx,dest,mfreq(ch[0]-12),t,sd*0.9,0.075,'triangle');else{tone(ctx,dest,mfreq(ch[1]),t,sd*0.5,0.022,'triangle');tone(ctx,dest,mfreq(ch[2]),t,sd*0.5,0.022,'triangle');}}
+ else{if(b===0)tone(ctx,dest,mfreq(ch[0]-12),t,sd*3.8,0.05,'triangle');if(b===4)tone(ctx,dest,mfreq(ch[2]-12),t,sd*3.8,0.035,'triangle');}}
+const MU={key:null,tr:null,night:false,step:0,next:0,pass:0};
+const stepDur=(tr,night)=>60/(tr.bpm*(night?0.84:1))/(tr.div||2);
+function wantTrack(){if(simonOn)return null;if(mg||dash)return'game';if(S.sleeping)return'sleep';return S.stage===0?'garden':S.loc;}
+function musicTick(){if(!AC||AC.state!=='running')return;const now=AC.currentTime;
+ rainGain.gain.setTargetAtTime(weather.rain&&seasonIdx()!==3?(S.loc==='home'?0.012:0.035):0,now,0.5);
+ if(!S.music){MU.key=null;return;}
+ const w=wantTrack(),night=!!w&&w!=='game'&&w!=='sleep'&&nightF(hour())>0.5,key=w?w+(night?'_n':''):null;
+ if(key!==MU.key){MU.key=key;MU.tr=w?prep(TRACKS[w]):null;MU.night=night;MU.step=0;MU.pass=0;MU.next=now+0.45;musFade.gain.cancelScheduledValues(now);musFade.gain.setTargetAtTime(0.0001,now,0.07);musFade.gain.setTargetAtTime(1,now+0.4,0.05);}
+ if(!MU.tr)return;const sd=stepDur(MU.tr,MU.night);if(MU.next<now)MU.next=now+0.05;
+ while(MU.next<now+0.3){schedStep(AC,musFade,MU.tr,MU.step,MU.next,sd,MU.night,MU.pass);MU.next+=sd;MU.step=(MU.step+1)%MU.tr.len;if(MU.step===0)MU.pass++;}}
+async function renderTrack(name,sec,night){const sr=22050,ctx=new OfflineAudioContext(1,sr*sec,sr),tr=prep(TRACKS[name]),sd=stepDur(tr,night);let t=0.05,s=0;while(t<sec-1){schedStep(ctx,ctx.destination,tr,s,t,sd,night,1);t+=sd;s=(s+1)%tr.len;}
+ const d=(await ctx.startRendering()).getChannelData(0);let pk=0,sq=0,quiet=0;for(let i=0;i<d.length;i++){const a=Math.abs(d[i]);if(a>pk)pk=a;sq+=a*a;}return{peak:+pk.toFixed(3),rms:+Math.sqrt(sq/d.length).toFixed(4),steps:tr.len,loopSec:+(tr.len*sd).toFixed(1)};}
+function soundMenu(){openModal(`<h2>SOUND</h2><div class="list">
+ <div class="row"><div class="g"><b>Music</b><small>A tune for every place, gentler at night.</small></div><input type="range" id="sMv" min="0" max="100" value="${Math.round(S.mvol*100)}"><button class="btn" id="sM">${S.music?'ON':'OFF'}</button></div>
+ <div class="row"><div class="g"><b>Sound effects</b><small>Taps, splashes, rain and jingles.</small></div><input type="range" id="sSv" min="0" max="100" value="${Math.round(S.svol*100)}"><button class="btn" id="sS">${S.mute?'OFF':'ON'}</button></div></div>`);
+ $('sMv').oninput=e=>{S.mvol=e.target.value/100;applyVolume();};$('sSv').oninput=e=>{S.svol=e.target.value/100;applyVolume();};$('sSv').onchange=()=>sfx.coin();
+ $('sM').onclick=()=>{S.music=!S.music;applyVolume();sfx.tap();soundMenu();};$('sS').onclick=()=>{S.mute=!S.mute;applyVolume();sfx.tap();soundMenu();};}
 
 /* ---------- UI feedback ---------- */
 function toast(html){const t=document.createElement('div');t.className='toast';t.innerHTML=html;$('toasts').appendChild(t);setTimeout(()=>t.remove(),3700);while($('toasts').children.length>3)$('toasts').firstChild.remove();}
@@ -418,18 +504,18 @@ function feed(id){const f=FOODS.find(x=>x.id===id);if(!f||!canAct())return;
  if(fav){if(!S.favKnown){S.favKnown=true;toast(`💗 <b>${f.name}</b> is Clawd's favorite food!`);}setTimeout(()=>{say('My FAVORITE!!');spawnFx('heart',pet.x,110,5);},700);}
  else if(f.say)setTimeout(()=>say(f.say),700);}
 function medicine(){if(!S.sick)return;const cost=Math.min(10,S.coins);S.coins-=cost;S.sick=false;S.neglect=0;S.stats.food=Math.max(S.stats.food,30);S.stats.clean=Math.max(S.stats.clean,30);closeModal();startAnim('happy',1);sfx.ok();say('All better!');}
-function toggleSleep(){if(S.stage===0){say('Tap the egg!');return;}if(S.sleeping)wake(false);else{if(S.stats.energy>85&&nightF(hour())<0.5){say('Not sleepy!');sfx.bad();return;}goTo('home',true);S.sleeping=true;S.sleptGh=0;pet.anim=null;sfx.tap();say('Good night…',1.5);}}
+function toggleSleep(){if(S.stage===0){say('Tap the egg!');return;}if(S.sleeping)wake(false);else{if(S.stats.energy>85&&nightF(hour())<0.5){say('Not sleepy!');sfx.bad();return;}goTo('home',true);S.sleeping=true;S.sleptGh=0;pet.anim=null;sfx.sleep();say('Good night…',1.5);}}
 function wake(auto){S.sleeping=false;pet.x=104;pet.tx=96;if(S.sleptGh>=5){S.stats.mood=clamp(S.stats.mood+12,0,100);gainXP(8);quest('night');say('What a great sleep!');startAnim('happy',1);}else say(auto?'Good morning!':'…huh? I\'m up!');S.sleptGh=0;sfx.ok();}
 function bath(){if(!canAct())return;if(S.stats.clean>92){say('Already squeaky clean!');sfx.bad();return;}
- goTo('home',true);startAnim('bath',2.6);S.stats.clean=100;S.stats.mood=clamp(S.stats.mood+6,0,100);S.skills.charm+=2;S.n.baths++;gainXP(5);quest('bath');jingle([784,880,988,1175],0.12);}
+ goTo('home',true);startAnim('bath',2.6);S.stats.clean=100;S.stats.mood=clamp(S.stats.mood+6,0,100);S.skills.charm+=2;S.n.baths++;gainXP(5);quest('bath');sfx.bath();jingle([784,880,988,1175],0.12);}
 function petClawd(){if(S.sleeping){say('Zzz…',1);return;}if(pet.petCd>0)return;pet.petCd=0.35;S.n.pets++;S.stats.mood=clamp(S.stats.mood+2.5,0,100);S.skills.charm+=0.4;gainXP(1);quest('pet');
  spawnFx('heart',pet.x,132-10*petSize(),2);sfx.pet();if(!pet.anim)startAnim('happy',0.5);}
-function tapEgg(){S.eggTaps++;sfx.tap();pet.wob=0.5;spawnFx('spark',100,118,3);if(S.eggTaps>=6){S.stage=1;S.born=S.clock;S.fav=pickFav();flash();sfx.big();toast('The egg hatched! Say hi to <b>Baby Clawd</b>');say('…hi!',3);startAnim('happy',1.5);spawnFx('spark',100,118,14);checkAch();S.tips.garden=1;setTimeout(()=>toast(TIPS.garden),2500);}}
+function tapEgg(){S.eggTaps++;sfx.crack();pet.wob=0.5;spawnFx('spark',100,118,3);if(S.eggTaps>=6){S.stage=1;S.born=S.clock;S.fav=pickFav();flash();sfx.big();toast('The egg hatched! Say hi to <b>Baby Clawd</b>');say('…hi!',3);startAnim('happy',1.5);spawnFx('spark',100,118,14);checkAch();S.tips.garden=1;setTimeout(()=>toast(TIPS.garden),2500);}}
 function pickForm(){const a=S.skills.smarts,b=S.skills.vigor,c=S.skills.charm,mx=Math.max(a,b,c),mn=Math.min(a,b,c);if(mx>0&&mn/mx>=0.7)return'sage';if(a===mx)return'prof';if(b===mx)return'athlete';return'idol';}
 function checkEvolve(){let ev=false;if(S.stage===1&&S.lvl>=3){S.stage=2;ev=true;}else if(S.stage===2&&S.lvl>=7){S.stage=3;S.form=pickForm();if(!S.forms.includes(S.form))S.forms.push(S.form);ev=true;}
  if(ev){flash();startAnim('happy',2);spawnFx('spark',pet.x,115,18);setTimeout(()=>{toast(`✨ Clawd evolved into <b>${stageName()}</b>!`);say('Look at me!',3);},400);}}
 function flash(c){const f=$('flash');f.style.background=c||'#fff';f.style.transition='none';f.style.opacity=1;requestAnimationFrame(()=>{f.style.transition=c?'opacity .45s':'opacity .9s';f.style.opacity=0;});}
-function newEgg(){const keep={coins:S.coins,hats:S.hats,foods:S.foods,forms:S.forms,ach:S.ach,n:S.n,daily:S.daily,streak:S.streak,gen:S.gen+1,seasons:S.seasons,clock:S.clock,mute:S.mute,friends:S.friends,buddy:S.buddy,places:S.places,plots:S.plots,crops:S.crops,fish:S.fish,toys:S.toys,pity:S.pity,tips:S.tips};S=Object.assign(freshState(),keep);S.born=S.clock;bugs=[];visitor=null;closeModal();flash();toast(`Generation <b>${S.gen}</b> begins!`);checkAch();}
+function newEgg(){const keep={coins:S.coins,hats:S.hats,foods:S.foods,forms:S.forms,ach:S.ach,n:S.n,daily:S.daily,streak:S.streak,gen:S.gen+1,seasons:S.seasons,clock:S.clock,mute:S.mute,music:S.music,mvol:S.mvol,svol:S.svol,friends:S.friends,buddy:S.buddy,places:S.places,plots:S.plots,crops:S.crops,fish:S.fish,toys:S.toys,pity:S.pity,tips:S.tips};S=Object.assign(freshState(),keep);S.born=S.clock;bugs=[];visitor=null;closeModal();flash();toast(`Generation <b>${S.gen}</b> begins!`);checkAch();}
 
 /* ---------- time-of-day ---------- */
 const NIGHT=['#10165A','#3A46B4'],DAWN=['#5868E8','#FFB088'],DUSK=['#5438CC','#FF7F4F'];
@@ -600,7 +686,7 @@ function line(x0,y0,x1,y1,c){x0=Math.round(x0);y0=Math.round(y0);x1=Math.round(x
 function goTo(loc,quiet){if(S.loc===loc)return true;if(S.stage===0){say('Hatch the egg first!');return false;}if(S.sleeping){say('Zzz…');return false;}
  S.loc=loc;pet.x=loc==='home'?84:100;pet.tx=pet.x;pet.wait=1;pet.anim=null;visitor=null;visitCd=rnd(3,8);buddy.x=pet.x-24;fxs=[];shoot=null;fishing=null;
  if(!S.places.includes(loc))S.places.push(loc);S.daily.places=S.daily.places||[];if(!S.daily.places.includes(loc))S.daily.places.push(loc);quest('trip',S.daily.places.length);
- flash('#2B2140');if(!quiet){sfx.tap();say(LOCS[loc].hi,2);if(!S.tips[loc]){S.tips[loc]=1;toast(TIPS[loc]);}}updateHUD();return true;}
+ flash('#2B2140');sfx.whoosh();if(!quiet){say(LOCS[loc].hi,2);if(!S.tips[loc]){S.tips[loc]=1;toast(TIPS[loc]);}}updateHUD();return true;}
 function spawnVisitor(){const h=hour(),se=seasonIdx(),n=nightF(h);const el=ANIMALS.filter(a=>a.loc.includes(S.loc)&&a.id!==S.buddy&&a.when(h,se,n,weather.rain));if(!el.length){visitCd=10;return;}
  const a=el[rint(0,el.length-1)],left=Math.random()<0.5;visitor={id:a.id,x:left?-8:208,y:rint(136,143),tx:left?rnd(20,60):rnd(140,180),dir:left?1:-1,stay:rnd(35,55),wait:0,t:0,hi:false,treat:false,leaving:false,mv:true};}
 function updateVisitor(dt){if(S.stage===0||S.loc==='home'||S.sleeping){visitor=null;return;}
@@ -676,7 +762,7 @@ const HOT={
  funfair:[{id:'gacha',r:[74,103,17,29],m:[82,99],act:()=>{gachaMenu();}},{id:'slide',r:[94,90,32,28],m:[100,88],cd:6,wait:'One at a time!',act:rideSlide},
   {id:'tent',r:[144,92,20,19],m:[154,88],act:()=>{playGame();}},{id:'stall',r:[6,91,38,40],m:[24,87],act:()=>{feedMenu();}},{id:'wheel',r:[20,26,68,72],m:[54,22],act:rideWheel}],
  lake:[{id:'dock',r:[27,105,28,24],m:[41,101],act:startFishing},{id:'torii',r:[116,73,44,35],m:[138,69],ready:()=>!S.daily.luck,act:()=>{omikuji();}},
-  {id:'water',r:[0,99,200,26],act:(x,y)=>{if(seasonIdx()===3){say('Solid ice!',1.2);return;}fxs.push({type:'ripple',x,y,vx:0,vy:0,life:0.9});beep(520,0.05,0.02,0,'sine');}}],
+  {id:'water',r:[0,99,200,26],act:(x,y)=>{if(seasonIdx()===3){say('Solid ice!',1.2);return;}fxs.push({type:'ripple',x,y,vx:0,vy:0,life:0.9});sfx.plop();}}],
 };
 function hotTap(x,y,pri){if(S.stage===0)return false;
  if(S.loc==='school'&&!S.sleeping&&Math.abs(x-ball.x)<9&&Math.abs(y-ball.y)<9){kickBall();return true;}
@@ -712,7 +798,7 @@ function updateWorld(dt,gh){
    ball.vy*=-0.45;ball.vx*=0.6;if(Math.abs(ball.vy)<22){ball.air=false;ball.vx=0;if(ball.x<12||ball.x>188)ball.reset=0.6;}}}
  if(ball.reset>0){ball.reset-=dt;if(ball.reset<=0){ball.x=rnd(58,124);ball.y=139;ball.air=false;}}
  if(fishing){if(S.sleeping||S.loc!=='lake'){fishing=null;return;}const f=fishing;f.t-=dt;
-  if(f.ph==='wait'&&f.t<=0){f.ph='bite';const h=hour(),se=seasonIdx(),n=nightF(h);f.fish=pickW(FISH.filter(q=>q.when(h,se,n,weather.rain)));f.t=f.fish.win;beep(1200,0.08,0.05);beep(1500,0.1,0.05,0.08);}
+  if(f.ph==='wait'&&f.t<=0){f.ph='bite';const h=hour(),se=seasonIdx(),n=nightF(h);f.fish=pickW(FISH.filter(q=>q.when(h,se,n,weather.rain)));f.t=f.fish.win;sfx.bite();}
   else if(f.ph==='bite'&&f.t<=0)endFishing('It got away…');}
 }
 function animEnd(type){if(type==='slide'){pet.x=140;pet.tx=128;pet.dir=-1;say('Wheee!',1.5);}
@@ -720,7 +806,7 @@ function animEnd(type){if(type==='slide'){pet.x=140;pet.tx=128;pet.dir=-1;say('W
 /* garden */
 function shakeTree(){if(pet.anim)return false;const cols=[['#FF9EC4','#FFD0E2'],['#2FCB70','#8BF08F'],['#FF8A2F','#E0452A'],['#FFFFFF','#DDEBFF']][seasonIdx()];
  for(let i=0;i<16;i++)fxs.push({type:'leaf',c:cols[i%2],x:36+rnd(-20,20),y:70+rnd(-14,12),vx:rnd(-10,10),vy:rnd(0,20),life:rnd(0.8,1.5)});
- beep(200,0.08,0.03);beep(260,0.08,0.03,0.09);const r=Math.random();
+ sfx.rustle();const r=Math.random();
  if(r<0.07){bugs.push({x:rnd(24,50),y:rint(126,134),dir:1,gold:true,t:0});say('Something shiny fell out!');}
  else if(r<0.25){bugs.push({x:rnd(24,50),y:rint(126,134),dir:1,gold:false,t:0});say('Eek, a bug!');}
  else{addCoins(rint(2,6),38,96);say(['Treasure!','Shake shake!','Ooh, coins!'][rint(0,2)]);sfx.coin();}
@@ -728,15 +814,15 @@ function shakeTree(){if(pet.anim)return false;const cols=[['#FF9EC4','#FFD0E2'],
 function plotTap(i){const p=S.plots[i],x=16+i*18;if(!p){sfx.tap();seedMenu(i);return;}const c=CROPS.find(q=>q.id===p.c);
  if(p.g>=c.grow){const giant=Math.random()<0.08,val=c.sell*(giant?3:1);S.plots[i]=null;S.crops[c.id]=(S.crops[c.id]||0)+1;S.n.harvests++;addCoins(val,x,128);gainXP(5);quest('harvest');sfx.coin();spawnFx('spark',x,136,giant?12:5);
   if(giant){toast(`🌟 A GIANT <b>${c.name}</b>! Triple price!`);sfx.big();}else say(`Fresh ${c.name}!`,1.5);checkAch();}
- else if(p.w<=0){p.w=6;for(let k=0;k<5;k++)fxs.push({type:'bubble',x:x+rnd(-6,6),y:rnd(128,138),vx:0,vy:rnd(8,20),life:0.5});beep(700,0.05,0.03,0,'sine');beep(900,0.05,0.03,0.06,'sine');say('Drink up!',1.2);}
+ else if(p.w<=0){p.w=6;for(let k=0;k<5;k++)fxs.push({type:'bubble',x:x+rnd(-6,6),y:rnd(128,138),vx:0,vy:rnd(8,20),life:0.5});sfx.water();say('Drink up!',1.2);}
  else say(`${c.name} is growing… ${Math.round(p.g/c.grow*100)}%`,1.6);}
 function seedMenu(i){const se=seasonIdx();let h='<h2>PLANT A SEED</h2><p>Water a sprout to double its speed for a while. Rain waters for you, and crops keep growing while you are away.</p><div class="list">';
  for(const c of CROPS){const ok=c.season==null||c.season===se;h+=`<div class="row ${ok?'':'locked'}"><span class="sw" style="background:${c.c}"></span><div class="g"><b>${c.name}</b><small>${ok?`Grows in ${c.grow}h · sells for ${c.sell} c`:SEASONS[c.season].name+' only'}</small></div><button class="btn" data-seed="${c.id}" ${ok&&S.coins>=c.cost?'':'disabled'}>${c.cost} c</button></div>`;}
- openModal(h+'</div>');$('modalBody').querySelectorAll('[data-seed]').forEach(b=>b.onclick=()=>{const c=CROPS.find(q=>q.id===b.dataset.seed);if(S.coins<c.cost||S.plots[i])return;S.coins-=c.cost;S.plots[i]={c:c.id,g:0,w:0};closeModal();sfx.ok();say('Grow, little seed!',1.5);});}
+ openModal(h+'</div>');$('modalBody').querySelectorAll('[data-seed]').forEach(b=>b.onclick=()=>{const c=CROPS.find(q=>q.id===b.dataset.seed);if(S.coins<c.cost||S.plots[i])return;S.coins-=c.cost;S.plots[i]={c:c.id,g:0,w:0};closeModal();sfx.pop();sfx.rustle();say('Grow, little seed!',1.5);});}
 /* home */
-function readBook(){if(!canAct())return false;if(S.stats.energy<6){say('Too sleepy to read…');return false;}S.stats.energy-=4;S.skills.smarts+=1.5;gainXP(3);beep(520,0.06,0.03,0,'triangle');beep(660,0.06,0.03,0.08,'triangle');setTimeout(()=>say(BOOKS[rint(0,BOOKS.length-1)],3),500);floatText('+smarts',101,60,'#4D8BFF');return true;}
+function readBook(){if(!canAct())return false;if(S.stats.energy<6){say('Too sleepy to read…');return false;}S.stats.energy-=4;S.skills.smarts+=1.5;gainXP(3);sfx.page();setTimeout(()=>say(BOOKS[rint(0,BOOKS.length-1)],3),500);floatText('+smarts',101,60,'#4D8BFF');return true;}
 /* school */
-function kickBall(){if(ball.air||ball.reset>0)return;if(!pet.anim){pet.tx=clamp(ball.x-12,20,180);pet.wait=0;}const vy=rnd(70,110),tt=2*vy/240;ball.vx=(163-ball.x)/tt*rnd(0.62,1.42);ball.vy=-vy;ball.air=true;ball.landed=false;sfx.squash();}
+function kickBall(){if(ball.air||ball.reset>0)return;if(!pet.anim){pet.tx=clamp(ball.x-12,20,180);pet.wait=0;}const vy=rnd(70,110),tt=2*vy/240;ball.vx=(163-ball.x)/tt*rnd(0.62,1.42);ball.vy=-vy;ball.air=true;ball.landed=false;sfx.kick();}
 function schoolMenu(){sfx.tap();const w=S.daily.word;
  openModal(`<h2>SCHOOL</h2><div class="list">
  <div class="row ${w&&w.done?'done':''}">${ic('book')}<div class="g"><b>Daily Word</b><small>${w&&w.done?(w.win?'Solved today. New word tomorrow!':'Come back tomorrow for a new word.'):'One secret word a day. Six guesses.'}</small></div><button class="btn" id="smWord">${w&&w.done?'VIEW':'PLAY'}</button></div>
@@ -761,7 +847,7 @@ function dashGame(){if(!canAct())return;if(S.sick){say('Too sick to run…');ret
  goTo('school',true);S.stats.energy-=15;paused=true;
  openModal(`<h2>CLAWD DASH</h2><p class="center">Tap the track or press SPACE to jump the hurdles!<br>Score <b id="dsS">0</b> · Best ${S.n.bestDash}</p><canvas id="mg" width="200" height="100" style="cursor:pointer"></canvas>`,endDash);
  dash={ctx:$('mg').getContext('2d'),y:0,vy:0,obs:[],d:0,sp:78,next:1.3,dead:0,run:0};$('mg').addEventListener('pointerdown',dashJump);}
-function dashJump(){if(dash&&!dash.dead&&dash.y===0){dash.vy=155;beep(700,0.05,0.03);}}
+function dashJump(){if(dash&&!dash.dead&&dash.y===0){dash.vy=155;sfx.jump();}}
 function endDash(){if(!dash)return;const sc=Math.floor(dash.d/10);dash=null;paused=false;const cn=Math.min(80,Math.floor(sc/5)),vg=sc/40+1;S.skills.vigor+=vg;S.n.plays++;S.n.bestDash=Math.max(S.n.bestDash,sc);S.stats.mood=clamp(S.stats.mood+12,0,100);addCoins(cn,pet.x,100);gainXP(4+Math.floor(sc/12));
  toast(`Clawd Dash! Score <b>${sc}</b> · +${Math.round(cn*luck())} coins · +${Math.floor(vg)} vigor`);startAnim('happy',1);checkAch();}
 function dashFrame(dt,time){const d=dash,se=seasonIdx(),P=SEASONS[se],GY=84;
@@ -778,29 +864,29 @@ function dashFrame(dt,time){const d=dash,se=seasonIdx(),P=SEASONS[se],GY=84;
  drawClawd(30,GY-Math.round(d.y),1,{stage:S.stage,form:null,hat:null,noTint:true,sad:!!d.dead,happy:!d.dead&&d.y>0,walk:d.y===0&&!d.dead?Math.floor(d.run*12)%2:null});
  g=pg;NQ=nq;DQ=dq;}
 /* funfair */
-function rideWheel(){if(!canAct())return false;if(S.coins<5){say('A ticket costs 5 coins…');sfx.bad();return false;}S.coins-=5;startAnim('ride',9);S.stats.mood=clamp(S.stats.mood+20,0,100);S.skills.charm+=1;S.n.rides++;gainXP(4);jingle([523,659,784,1047],0.12);say('Up we go!',1.5);}
-function rideSlide(){if(!canAct())return false;startAnim('slide',1.9);S.stats.mood=clamp(S.stats.mood+8,0,100);S.skills.vigor+=0.3;gainXP(2);jingle([400,500,600,800,1000],0.07);}
+function rideWheel(){if(!canAct())return false;if(S.coins<5){say('A ticket costs 5 coins…');sfx.bad();return false;}S.coins-=5;startAnim('ride',9);S.stats.mood=clamp(S.stats.mood+20,0,100);S.skills.charm+=1;S.n.rides++;gainXP(4);sfx.ride();say('Up we go!',1.5);}
+function rideSlide(){if(!canAct())return false;startAnim('slide',1.9);S.stats.mood=clamp(S.stats.mood+8,0,100);S.skills.vigor+=0.3;gainXP(2);sfx.slide();}
 function gachaMenu(res){const own=TOYS.filter(t=>S.toys[t.id]).length;
  let h=`<h2>CAPSULE MACHINE</h2><p class="center">Toys collected <b>${own}/${TOYS.length}</b>. A duplicate refunds 8 coins.</p>`;
  h+=res?`<p class="center"><img class="px" src="${iconURL('t_'+res.t.id)}" width="96" height="96" alt=""></p><p class="center"><b style="color:${RAR[res.t.r].c}">${RAR[res.t.r].n}</b><br><b>${res.t.name}</b> ${res.isNew?'— NEW!':'— duplicate, +8 c'}</p>`:`<p class="center"><img class="px" src="${iconURL('capsule')}" width="96" height="96" alt=""></p><p class="center">What's inside? Could be common, rare, epic… or legendary.</p>`;
  h+=`<p class="center"><button class="btn big" id="gRoll" ${S.coins<20?'disabled':''}>TURN THE CRANK · 20 c</button></p><div class="grid">`;
  for(const t of TOYS){const n=S.toys[t.id];h+=`<div class="cell ${n?'':'unk'}">${ic(n?'t_'+t.id:'q')}<br>${n?t.name+(n>1?' ×'+n:''):'???'}<br><small style="color:${RAR[t.r].c}">${RAR[t.r].n}</small></div>`;}
- openModal(h+'</div>');$('gRoll').onclick=()=>{if(S.coins<20)return;S.coins-=20;let t;const missing=TOYS.filter(q=>!S.toys[q.id]&&q.r<2);
+ openModal(h+'</div>');$('gRoll').onclick=()=>{if(S.coins<20)return;S.coins-=20;sfx.crank();let t;const missing=TOYS.filter(q=>!S.toys[q.id]&&q.r<2);
   if(S.pity>=5&&missing.length)t=missing[rint(0,missing.length-1)];else{const rr=RAR.indexOf(pickW(RAR)),pool=TOYS.filter(q=>q.r===rr);t=pool[rint(0,pool.length-1)];}
   const isNew=!S.toys[t.id];S.toys[t.id]=(S.toys[t.id]||0)+1;if(isNew){S.pity=0;gainXP(6);}else{S.pity++;S.coins+=8;}quest('gacha');
   if(t.r>=2){sfx.big();toast(`✨ ${RAR[t.r].n}! <b>${t.name}</b>`);}else if(isNew)sfx.ok();else sfx.tap();checkAch();gachaMenu({t,isNew});};}
 /* lake */
 function startFishing(){if(fishing)return false;if(!canAct())return false;if(S.sick){say('Too sick to fish…');return false;}if(S.stats.energy<4){say('Too tired to fish…');sfx.bad();return false;}
- S.stats.energy-=3;startAnim('fish',999);pet.dir=1;fishing={ph:'wait',t:rnd(2,6),fish:null};say('Wait for the splash, then tap!',2);beep(500,0.05,0.03);beep(350,0.08,0.03,0.12);}
+ S.stats.energy-=3;startAnim('fish',999);pet.dir=1;fishing={ph:'wait',t:rnd(2,6),fish:null};say('Wait for the splash, then tap!',2);sfx.cast();}
 function endFishing(msg){fishing=null;pet.anim=null;pet.x=62;pet.tx=72;if(msg){say(msg,1.6);sfx.bad();}}
 function hookTap(){const f=fishing;if(!f)return;if(f.ph==='wait'){endFishing('Too soon! It swam off.');return;}
  const fi=f.fish,size=fi.id==='boot'?27:Math.round(rnd(8,30)+fi.v*rnd(0.5,1.1)),rec=S.fish[fi.id]||{n:0,max:0},isNew=!rec.n,big=size>rec.max;rec.n++;rec.max=Math.max(rec.max,size);S.fish[fi.id]=rec;
- fishing=null;pet.x=62;pet.tx=72;startAnim('happy',1.5,{fishId:fi.id,fishC:fi.c});const val=Math.round(fi.v*(1+size/120));addCoins(val,62,96);gainXP(fi.id==='boot'?1:4);if(fi.id!=='boot'){quest('fish');S.skills.vigor+=0.3;}
+ sfx.splash();fishing=null;pet.x=62;pet.tx=72;startAnim('happy',1.5,{fishId:fi.id,fishC:fi.c});const val=Math.round(fi.v*(1+size/120));addCoins(val,62,96);gainXP(fi.id==='boot'?1:4);if(fi.id!=='boot'){quest('fish');S.skills.vigor+=0.3;}
  if(fi.w<10&&fi.id!=='boot')sfx.big();else sfx.coin();toast(fi.id==='boot'?'You fished up… an <b>Old Boot</b>. +1 coin':`🎣 <b>${fi.name}</b>, ${size} cm${isNew?' — NEW!':big?' — new record!':''}`);checkAch();}
 function omikuji(){sfx.tap();const L=S.daily.luck;
  if(L){const f=FORTUNES[L.i];openModal(`<h2>TODAY'S FORTUNE</h2><p class="center fortune">${f.k}</p><p class="center"><b>${f.n}</b><br>${f.d}</p><p class="center"><small>Come back tomorrow to draw again.</small></p>`);return;}
  openModal(`<h2>LAKESIDE SHRINE</h2><p class="center">Offer 5 coins and draw a paper fortune.<br>Good luck boosts every coin you earn today.</p><p class="center"><button class="btn big" id="omDraw" ${S.coins<5?'disabled':''}>DRAW A FORTUNE · 5 c</button></p>`);
- $('omDraw').onclick=()=>{if(S.coins<5||S.daily.luck)return;S.coins-=5;const f=pickW(FORTUNES),i=FORTUNES.indexOf(f);S.daily.luck={i,m:f.m};if(f.m===1)S.coins+=15;gainXP(3);if(i===0){sfx.big();S.n.great=(S.n.great||0)+1;}else sfx.ok();checkAch();omikuji();};}
+ $('omDraw').onclick=()=>{if(S.coins<5||S.daily.luck)return;S.coins-=5;const f=pickW(FORTUNES),i=FORTUNES.indexOf(f);sfx.bell();S.daily.luck={i,m:f.m};if(f.m===1)S.coins+=15;gainXP(3);if(i===0){sfx.big();S.n.great=(S.n.great||0)+1;}else sfx.ok();checkAch();omikuji();};}
 
 /* ---------- extra scenes ---------- */
 function farHills(P,base){const hf=T(P.hillFar),hn=T(P.hillNear);for(let x=0;x<W;x++){const y=Math.round(base+Math.sin(x*0.045+1)*5+Math.sin(x*0.02)*4);R(x,y,1,112-y,hf);}for(let x=0;x<W;x++){const y=Math.round(base+10+Math.sin(x*0.03+4)*3);R(x,y,1,112-y,hn);}}
@@ -1046,7 +1132,7 @@ function updateHUD(){
  $('tQuests').classList.toggle('has',S.daily.quests.some(q=>q.done&&!q.claimed)||(S.daily.quests.length&&S.daily.quests.every(q=>q.claimed)&&!S.daily.bonus));
  $('tTroph').classList.toggle('has',newTrophy);$('tFriends').classList.toggle('has',newFriend);
  document.querySelectorAll('.loc').forEach(b=>b.classList.toggle('on',b.dataset.loc===S.loc));
- $('tSound').textContent=S.mute?'♪ OFF':'♪ ON';
+ $('tSound').textContent=S.mute&&!S.music?'♪ OFF':'♪ ON';
 }
 function applyTheme(){const P=SE();document.documentElement.style.setProperty('--bg1',P.bg[0]);document.documentElement.style.setProperty('--bg2',P.bg[1]);}
 
@@ -1127,7 +1213,7 @@ function afterWelcome(){if(pendingDaily){pendingDaily=false;setTimeout(dailyRewa
 
 /* ---------- mini-game: Memory Tokens ---------- */
 function studyGame(){if(!canAct())return;if(S.sick){say('Too sick to study…');return;}if(S.stats.energy<15){say('Too tired to study…');sfx.bad();return;}
- goTo('school',true);S.stats.energy-=15;paused=true;const cols=['#FF6B5E','#FFD23F','#2ED47A','#4D8BFF'],tones=[330,392,494,587];
+ goTo('school',true);S.stats.energy-=15;paused=true;simonOn=true;const cols=['#FF6B5E','#FFD23F','#2ED47A','#4D8BFF'],tones=[330,392,494,587];
  let seq=[],pos=0,round=0,input=false,over=false,timers=[];
  openModal(`<h2>MEMORY TOKENS</h2><p class="center" id="sgMsg">Watch the tokens, then repeat them.</p><div class="pads">${cols.map((c,i)=>`<div class="pad" data-i="${i}" style="background:${c}"></div>`).join('')}</div><p class="center">Round <b id="sgRound">0</b> · Best ${S.n.bestSimon}</p>`,finish);
  const pads=[...$('modalBody').querySelectorAll('.pad')];
@@ -1137,7 +1223,7 @@ function studyGame(){if(!canAct())return;if(S.sick){say('Too sick to study…');
  pads.forEach(pd=>pd.onpointerdown=()=>{if(!input||over)return;const i=+pd.dataset.i;light(i,200);
   if(i!==seq[pos]){over=true;sfx.bad();$('sgMsg').innerHTML='Oops! <button class="btn big" id="sgEnd">COLLECT</button>';$('sgEnd').onclick=closeModal;return;}
   pos++;if(pos>=seq.length){round=seq.length;$('sgRound').textContent=round;input=false;timers.push(setTimeout(next,600));}});
- function finish(){timers.forEach(clearTimeout);paused=false;const coins=round*3,sm=(round*1.5+1)*(S.buddy==='sparrow'?1.25:1);S.skills.smarts+=sm;S.n.studies++;S.n.bestSimon=Math.max(S.n.bestSimon,round);addCoins(coins,pet.x,100);gainXP(4+round*2);quest('simon',round);
+ function finish(){timers.forEach(clearTimeout);paused=false;simonOn=false;const coins=round*3,sm=(round*1.5+1)*(S.buddy==='sparrow'?1.25:1);S.skills.smarts+=sm;S.n.studies++;S.n.bestSimon=Math.max(S.n.bestSimon,round);addCoins(coins,pet.x,100);gainXP(4+round*2);quest('simon',round);
   toast(`Study done! Round <b>${round}</b> · +${coins} coins · +${Math.floor(sm)} smarts`);startAnim('happy',1);checkAch();}
  timers.push(setTimeout(next,700));}
 
@@ -1191,7 +1277,7 @@ cv.addEventListener('pointerdown',e=>{const r=cv.getBoundingClientRect(),x=(e.cl
 $('bFeed').onclick=()=>{sfx.tap();feedMenu();};$('bSleep').onclick=toggleSleep;$('bStudy').onclick=()=>{sfx.tap();studyGame();};$('bPlay').onclick=()=>{sfx.tap();playGame();};
 $('bBath').onclick=bath;$('bShop').onclick=()=>{sfx.tap();shopMenu();};$('tQuests').onclick=()=>{sfx.tap();questMenu();};$('tTroph').onclick=()=>{sfx.tap();trophyMenu();};
 $('tFriends').onclick=friendsMenu;document.querySelectorAll('.loc').forEach(b=>b.onclick=()=>goTo(b.dataset.loc));
-$('tJournal').onclick=()=>{sfx.tap();journalMenu();};$('tSound').onclick=()=>{S.mute=!S.mute;sfx.tap();updateHUD();};
+$('tJournal').onclick=()=>{sfx.tap();journalMenu();};$('tSound').onclick=()=>{sfx.tap();soundMenu();};
 
 /* ---------- main loop ---------- */
 let lastT=performance.now(),secT=0,saveT=0,hiddenAt=0;
@@ -1222,7 +1308,7 @@ window.onbeforeunload=()=>{if(!noSave)save();};
  else if(pendingDaily){pendingDaily=false;dailyReward();}
  requestAnimationFrame(frame);
 })();
-window.G={get S(){return S;},set(h,season){const d=season!=null?season*DAYS_PER_SEASON:dayIdx();S.clock=d*24+h;},pet,get bugs(){return bugs;},weather,pause(v){paused=v;},goTo,get visitor(){return visitor;},hotTap,get fishing(){return fishing;},ball,spawn(id){visitor={id,x:60,y:138,tx:60,dir:1,stay:99,wait:9,t:0,hi:false,treat:false,leaving:false,mv:false};}};
+window.G={get S(){return S;},set(h,season){const d=season!=null?season*DAYS_PER_SEASON:dayIdx();S.clock=d*24+h;},pet,get bugs(){return bugs;},weather,pause(v){paused=v;},goTo,get visitor(){return visitor;},renderTrack,MU,get AC(){return AC;},hotTap,get fishing(){return fishing;},ball,spawn(id){visitor={id,x:60,y:138,tx:60,dir:1,stay:99,wait:9,t:0,hi:false,treat:false,leaving:false,mv:false};}};
 </script>
 </body>
 </html>
