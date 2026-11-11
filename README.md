@@ -2,7 +2,9 @@
 
 A pixel-art virtual pet game starring Clawd, playable in any browser. One HTML file, no build step, no dependencies.
 
-**Play:** open `index.html`, or serve the folder with any static server.
+**▶ Play online: [aliciawque.github.io/clawd-days](https://aliciawque.github.io/clawd-days/)**
+
+Or run it locally: open `index.html`, or serve the folder with any static server.
 
 [![Clawd Days trailer — click to watch with sound](promo/preview.gif)](https://aliciawque.github.io/clawd-days/promo/clawd-days-promo.mp4)
 
