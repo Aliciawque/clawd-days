@@ -4,6 +4,10 @@ A pixel-art virtual pet game starring Clawd, playable in any browser. One HTML f
 
 **Play:** open `index.html`, or serve the folder with any static server.
 
+[![Clawd Days trailer — click to watch with sound](promo/preview.gif)](https://aliciawque.github.io/clawd-days/promo/clawd-days-promo.mp4)
+
+▶ **[Watch the 30-second trailer with sound](https://aliciawque.github.io/clawd-days/promo/clawd-days-promo.mp4)** ([file](promo/clawd-days-promo.mp4)). Every frame is drawn by the game's own code, and the music is the game's own synth.
+
 ## What's in it
 
 - **Raise Clawd** from a mystery egg through Baby and Kid to one of four final forms, decided by how you raise him (study, play, affection, or balance).
